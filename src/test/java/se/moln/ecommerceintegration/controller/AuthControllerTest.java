@@ -19,6 +19,7 @@ import se.moln.ecommerceintegration.service.UserService;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -70,19 +71,23 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(om.writeValueAsString(req)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("conflict")));
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error", equalTo("conflict")))
+                .andExpect(jsonPath("$.message").exists());
     }
 
     @Test
-    void register_validationError_returns400() throws Exception {
-        // too short password (min 8 per DTO validation)
+    void register_validationError_returns400_structuredDetails() throws Exception {
+        // invalid password: too short and lacks required complexity (min 8 + upper/lower/digit/special)
         RegisterRequest req = new RegisterRequest("user@example.com", "short", "D", "A");
 
         mvc.perform(post("/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(om.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", equalTo("validation_failed")));
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error", equalTo("validation_failed")))
+                .andExpect(jsonPath("$.details").exists());
     }
 
     @Test
@@ -101,25 +106,28 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(om.writeValueAsString(req)))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.accessToken", equalTo("token-xyz")))
                 .andExpect(jsonPath("$.tokenType", equalTo("Bearer")));
     }
 
     @Test
-    void login_unknownEmail_returns409_conflict() throws Exception {
+    void login_unknownEmail_returns401_unauthorized() throws Exception {
         when(userRepository.findByEmail("nouser@example.com")).thenReturn(Optional.empty());
         LoginRequest req = new LoginRequest("nouser@example.com", "whatever");
 
         mvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(om.writeValueAsString(req)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("conflict")))
-                .andExpect(jsonPath("$.message").exists());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error", equalTo("unauthorized")))
+                .andExpect(jsonPath("$.message", equalTo("Invalid credentials")))
+                .andExpect(jsonPath("$.details", hasSize(0)));
     }
 
     @Test
-    void login_wrongPassword_returns409_conflict() throws Exception {
+    void login_wrongPassword_returns401_unauthorized() throws Exception {
         String email = "user@example.com";
         String wrongHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode("OtherPassword!");
         User user = User.newUser(email, wrongHash, "D", "A");
@@ -130,7 +138,10 @@ class AuthControllerTest {
         mvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(om.writeValueAsString(req)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", equalTo("conflict")));
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.error", equalTo("unauthorized")))
+                .andExpect(jsonPath("$.message", equalTo("Invalid credentials")))
+                .andExpect(jsonPath("$.details", hasSize(0)));
     }
 }
